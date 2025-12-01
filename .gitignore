@@ -1,0 +1,33 @@
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+*.egg-info/
+dist/
+build/
+*.ipynb_checkpoints
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+results/
+models/
+*.pt
+*.pth
+
+# LaTeX artifacts
+*.aux
+*.log
+*.out
+*.synctex.gz
+*.bbl
+*.blg
+*.fdb_latexmk
+*.fls
+
+# Output logs
+run_output.txt

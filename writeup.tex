@@ -1,0 +1,347 @@
+\documentclass[11pt]{article}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{booktabs}
+\usepackage{float}
+\usepackage[margin=1in]{geometry}
+
+\title{Coverage Testing of MLP Ensemble Classifiers on a 10D Gaussian Toy Model}
+\author{}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+We investigate the uncertainty quantification properties of bootstrap-based neural network ensembles for binary classification. Using a 10-dimensional Gaussian toy model with known optimal decision boundary (Neyman-Pearson classifier), we evaluate whether a single ensemble's prediction intervals achieve nominal coverage. Our results show systematic undercoverage, with a single ensemble (50 models) achieving only 74.3\% $\pm$ 0.5\% empirical coverage at the 95\% confidence level. Bias-variance decomposition reveals that this undercoverage is due to underestimated variance (ensembles capture only $\sim$69\% of true uncertainty), not systematic bias (mean bias $\approx$ 0.15\%). The small variation across 20 independent ensembles demonstrates this is a systematic methodological problem, not random variation. Results from November 26, 2025 experiment are saved for reproducibility.
+\end{abstract}
+
+\section{Introduction}
+
+Uncertainty quantification in machine learning is critical for reliable decision-making, particularly in high-stakes applications. While neural networks can achieve high predictive accuracy, quantifying their uncertainty remains challenging. Ensemble methods offer one approach to uncertainty estimation by training multiple models and using their disagreement as a proxy for uncertainty.
+
+In this work, we systematically evaluate the \textbf{coverage} of ensemble-based uncertainty estimates: do the confidence intervals produced by ensembles contain the true optimal predictions at the claimed confidence levels? We use a controlled 10D Gaussian toy problem where the Neyman-Pearson optimal classifier is analytically known, providing ground truth for evaluation.
+
+\section{Problem Setup}
+
+\subsection{Gaussian Toy Model}
+
+We consider binary classification with signal ($y=1$) and background ($y=0$) classes, each following multivariate Gaussian distributions:
+
+\begin{align}
+p(\mathbf{x}|y=0) &= \mathcal{N}(\mathbf{x}; \boldsymbol{\mu}_b, \mathbf{\Sigma}_b) \\
+p(\mathbf{x}|y=1) &= \mathcal{N}(\mathbf{x}; \boldsymbol{\mu}_s, \mathbf{\Sigma}_s)
+\end{align}
+
+where:
+\begin{itemize}
+    \item $\mathbf{x} \in \mathbb{R}^{10}$ (10-dimensional feature space)
+    \item Background: $\boldsymbol{\mu}_b = \mathbf{0}$, $\mathbf{\Sigma}_b = \mathbf{I}_{10}$
+    \item Signal: $\boldsymbol{\mu}_s = (2, 0, \ldots, 0)^\top$, $\mathbf{\Sigma}_s = \mathbf{I}_{10}$
+\end{itemize}
+
+The signal distribution is shifted by 2 standard deviations in the first dimension, providing reasonable class separation.
+
+\subsection{Neyman-Pearson Optimal Classifier}
+
+The Neyman-Pearson lemma states that the optimal test statistic for binary hypothesis testing is the likelihood ratio:
+
+\begin{equation}
+\Lambda(\mathbf{x}) = \frac{p(\mathbf{x}|y=1)}{p(\mathbf{x}|y=0)}
+\end{equation}
+
+For our Gaussian model with equal covariances, this reduces to:
+
+\begin{equation}
+\Lambda(\mathbf{x}) = \exp\left(\frac{1}{2}(\|\mathbf{x} - \boldsymbol{\mu}_b\|^2 - \|\mathbf{x} - \boldsymbol{\mu}_s\|^2)\right)
+\end{equation}
+
+The optimal posterior probability (assuming equal priors $p(y=0) = p(y=1) = 0.5$) is:
+
+\begin{equation}
+p^*_\text{NP}(y=1|\mathbf{x}) = \frac{\Lambda(\mathbf{x})}{1 + \Lambda(\mathbf{x})}
+\end{equation}
+
+This provides the ground truth against which we evaluate our ensembles.
+
+\section{Methodology}
+
+\subsection{Data Generation}
+
+\begin{itemize}
+    \item \textbf{Training data}: 10,000 samples (5,000 signal, 5,000 background)
+    \item \textbf{Test data}: 5,000 samples (2,500 signal, 2,500 background)
+    \item Balanced classes with equal prior probabilities
+\end{itemize}
+
+\subsection{MLP Architecture}
+
+Each individual classifier is a feedforward neural network with:
+\begin{itemize}
+    \item Input layer: 10 units (one per feature)
+    \item Hidden layers: [64, 32] units with ReLU activation
+    \item Dropout: 0.1 probability after each hidden layer
+    \item Output: 1 unit with sigmoid activation (binary classification)
+    \item Loss: Binary cross-entropy
+    \item Optimizer: Adam with learning rate 0.001
+    \item Training: 30 epochs, batch size 512
+\end{itemize}
+
+\subsection{Bootstrap Ensemble Construction}
+
+To capture both training uncertainty and finite-data uncertainty, we use bootstrap resampling:
+
+\begin{enumerate}
+    \item \textbf{Multiple ensembles}: Create $M = 20$ independent ensembles for evaluating variability
+    \item \textbf{Models per ensemble}: Each ensemble contains $K = 50$ MLP models
+    \item \textbf{Bootstrap sampling}: Each model is trained on a stratified bootstrap sample of the training data (sampling with replacement while preserving class balance)
+    \item \textbf{Total models}: $M \times K = 1000$ models trained
+\end{enumerate}
+
+For a given test point $\mathbf{x}$, ensemble $j$ produces predictions:
+\begin{equation}
+\{p^{(j)}_1(\mathbf{x}), \ldots, p^{(j)}_{K}(\mathbf{x})\}
+\end{equation}
+
+The ensemble mean and quantiles are:
+\begin{align}
+\bar{p}^{(j)}(\mathbf{x}) &= \frac{1}{K}\sum_{k=1}^K p^{(j)}_k(\mathbf{x}) \\
+q^{(j)}_\alpha(\mathbf{x}) &= \text{quantile}_\alpha\{p^{(j)}_1(\mathbf{x}), \ldots, p^{(j)}_{K}(\mathbf{x})\}
+\end{align}
+
+\subsection{Coverage Evaluation}
+
+\textbf{Single ensemble coverage} measures how often the Neyman-Pearson optimal prediction falls within a single ensemble's confidence intervals:
+
+For confidence level $\alpha \in [0,1]$, the $(1-\alpha)$ confidence interval for ensemble $j$ at point $\mathbf{x}$ is:
+\begin{equation}
+\text{CI}^{(j)}_\alpha(\mathbf{x}) = [q^{(j)}_{\alpha/2}(\mathbf{x}), q^{(j)}_{1-\alpha/2}(\mathbf{x})]
+\end{equation}
+
+For ensemble $j$ and confidence level $\alpha$, the coverage is:
+\begin{equation}
+\text{Coverage}^{(j)}(\alpha) = \frac{1}{N}\sum_{i=1}^N \mathbb{1}\left[p^*_\text{NP}(\mathbf{x}_i) \in \text{CI}^{(j)}_\alpha(\mathbf{x}_i)\right]
+\end{equation}
+
+To assess variability, we compute coverage for each of the $M=20$ independent ensembles and report:
+\begin{equation}
+\text{Mean Coverage}(\alpha) = \frac{1}{M}\sum_{j=1}^M \text{Coverage}^{(j)}(\alpha) \pm \text{std}
+\end{equation}
+
+\textbf{Perfect calibration} would yield $\text{Coverage}^{(j)}(\alpha) = 1 - \alpha$ for all $\alpha$ and all $j$. In practice, we deploy a single ensemble, so $\text{Coverage}^{(j)}(\alpha)$ represents the actual coverage achieved.
+
+\section{Results}
+
+\subsection{Experiment Log}
+
+The experiment was run on November 26, 2025 on NERSC Perlmutter using 4 NVIDIA A100 GPUs. Results are saved for reproducibility in \texttt{results/20251126\_132453/}.
+
+\textbf{Configuration:}
+\begin{itemize}
+    \item Seed: 42
+    \item Training samples: 10,000 (5,000 signal, 5,000 background)
+    \item Test samples: 5,000 (2,500 signal, 2,500 background)
+    \item Models per ensemble: 50
+    \item Number of ensembles: 20
+    \item Architecture: Input(10) $\rightarrow$ Dense(64) $\rightarrow$ Dense(32) $\rightarrow$ Output(1)
+    \item Training: 30 epochs, batch size 512, learning rate 0.001, dropout 0.1
+\end{itemize}
+
+\subsection{Individual Ensemble Performance}
+
+Table~\ref{tab:individual} shows metrics for all 20 independent ensembles at 95\% confidence level.
+
+\begin{table}[H]
+\centering
+\caption{Performance metrics for individual ensembles (95\% CI, 50 models each)}
+\label{tab:individual}
+\small
+\begin{tabular}{lcccc}
+\toprule
+Statistic & Coverage & Mean Interval Width & MAE vs NP & RMSE vs NP \\
+\midrule
+Mean (20 ensembles) & 0.7432 & 0.0960 & 0.0257 & 0.0381 \\
+Std (20 ensembles) & 0.0049 & 0.0008 & 0.0002 & 0.0004 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Key observations:
+\begin{itemize}
+    \item \textbf{Each individual ensemble} achieves $\sim$74.3\% coverage (target: 95\%)
+    \item Very small variation across ensembles (std = 0.5\%), indicating systematic undercoverage
+    \item Mean absolute error vs NP optimal: $\sim$0.026 (good prediction accuracy)
+    \item Interval widths are relatively narrow ($\sim$0.096), indicating overconfidence
+    \item All 20 ensembles consistently undercover by $\sim$21 percentage points
+\end{itemize}
+
+\subsection{Coverage at Multiple Confidence Levels}
+
+Figure~\ref{fig:coverage} shows single ensemble coverage (mean $\pm$ std across 20 independent ensembles) at multiple confidence levels.
+
+\begin{table}[H]
+\centering
+\caption{Single ensemble coverage at key confidence levels (mean $\pm$ std)}
+\label{tab:coverage}
+\begin{tabular}{lcc}
+\toprule
+Confidence Level & Expected Coverage & Empirical Coverage (mean $\pm$ std) \\
+\midrule
+50\% & 0.500 & 0.343 $\pm$ 0.004 \\
+68\% & 0.680 & 0.480 $\pm$ 0.005 \\
+90\% & 0.900 & 0.678 $\pm$ 0.007 \\
+95\% & 0.950 & 0.748 $\pm$ 0.005 \\
+99\% & 0.990 & 0.811 $\pm$ 0.007 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Calibration Analysis}
+
+The coverage plot reveals systematic \textbf{undercoverage} across all confidence levels for individual ensembles:
+\begin{itemize}
+    \item At 95\% confidence, a single ensemble achieves only 74.8\% $\pm$ 0.5\% coverage
+    \item The gap between expected and empirical coverage is approximately constant ($\sim$20 percentage points)
+    \item The very small standard deviation (0.5\%) across ensembles proves this is a systematic methodological problem, not due to particular bootstrap samples
+    \item This indicates individual ensembles are overconfident---their uncertainty estimates are too narrow
+\end{itemize}
+
+\subsection{Bias-Variance Decomposition}
+
+To understand the source of undercoverage, we decompose the prediction error into bias and variance components:
+
+\begin{table}[H]
+\centering
+\caption{Bias-variance analysis of ensemble predictions (mean $\pm$ std across 20 ensembles)}
+\label{tab:bias}
+\begin{tabular}{lcc}
+\toprule
+Metric & Value & Interpretation \\
+\midrule
+Mean Bias (signed) & $+0.0015 \pm 0.0007$ & Negligible ($\sim$0.15\% of range) \\
+Std Error (actual) & $0.0381 \pm 0.0004$ & True prediction variability \\
+Ensemble Std (predicted) & $0.0263 \pm 0.0002$ & Estimated uncertainty \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Key findings from the bias analysis:
+\begin{itemize}
+    \item \textbf{Bias is negligible}: The mean signed error is $+0.0015$, indicating ensembles are essentially unbiased estimators of the NP optimal predictions. This rules out systematic over- or under-prediction as a cause of undercoverage.
+
+    \item \textbf{Variance is underestimated}: The ensemble standard deviation (0.0263) is significantly smaller than the actual standard deviation of errors (0.0381). The ratio is $0.0263/0.0381 \approx 0.69$, meaning ensembles capture only $\sim$69\% of the true uncertainty.
+
+    \item \textbf{Undercoverage is a variance problem}: Since bias is near zero, the 21 percentage point coverage gap is entirely due to underestimated prediction intervals, not systematic prediction errors.
+\end{itemize}
+
+This bias-variance analysis confirms that bootstrap ensembles produce unbiased predictions but \textbf{overconfident uncertainty estimates}. The confidence intervals are too narrow because individual ensemble members are too similar to each other, failing to capture the full range of epistemic uncertainty.
+
+\section{Discussion}
+
+\subsection{Sources of Undercoverage}
+
+Several factors may contribute to the observed undercoverage:
+
+\begin{enumerate}
+    \item \textbf{Bootstrap limitations}: Bootstrap resampling may not generate sufficient diversity among ensemble members. All models see similar data distributions, leading to correlated predictions.
+
+    \item \textbf{Finite ensemble size}: With 50 models per ensemble, the quantile estimates may still be unstable and systematically biased toward narrower intervals.
+
+    \item \textbf{Neural network expressiveness}: MLPs with 64-32 hidden units may be overfitting to the training data, resulting in overconfident predictions that don't reflect true uncertainty.
+
+    \item \textbf{Training procedure}: Reduced training epochs (30) and specific hyperparameters may affect calibration. Models that haven't fully converged might have different uncertainty characteristics.
+
+    \item \textbf{Lack of explicit calibration}: The raw ensemble predictions are not post-processed for calibration (e.g., via temperature scaling or Platt scaling).
+\end{enumerate}
+
+\subsection{Potential Improvements}
+
+To improve coverage, several approaches could be explored:
+
+\begin{itemize}
+    \item \textbf{Increase ensemble size}: Use 50--100 models per ensemble for more stable quantile estimation
+    \item \textbf{Deep ensembles}: Train models with different random initializations rather than just bootstrap resampling
+    \item \textbf{MC Dropout}: Use Monte Carlo dropout at test time as an alternative uncertainty estimate
+    \item \textbf{Temperature scaling}: Apply post-hoc calibration to adjust prediction confidence
+    \item \textbf{More training data}: Increase from 10,000 to 50,000+ samples to reduce finite-data effects
+    \item \textbf{Conformal prediction}: Use conformal methods to obtain coverage guarantees
+\end{itemize}
+
+\subsection{Comparison to Prior Work}
+
+Bootstrap ensembles are known to provide well-calibrated uncertainties in some settings (e.g., Breiman's bagging for decision trees), but neural networks present unique challenges:
+\begin{itemize}
+    \item Neural networks have high capacity and can memorize training data
+    \item Optimization landscape complexity leads to different local minima
+    \item Bootstrap samples may be too similar for neural networks to explore different hypotheses
+\end{itemize}
+
+Recent work (Lakshminarayanan et al., 2017) suggests that ``proper'' deep ensembles (with different initializations) achieve better calibration than bootstrap-based approaches.
+
+\section{Conclusion}
+
+We evaluated the coverage properties of individual bootstrap MLP ensembles (50 models each) on a 10D Gaussian classification problem with known optimal classifier. Our key findings from the November 26, 2025 experiment:
+
+\begin{itemize}
+    \item \textbf{Each individual} bootstrap ensemble exhibits systematic undercoverage across all confidence levels
+    \item 95\% confidence intervals achieve only 74.3\% $\pm$ 0.5\% empirical coverage
+    \item Ensembles maintain good prediction accuracy (MAE $\approx$ 0.026) but underestimate uncertainty
+    \item \textbf{Bias-variance decomposition} reveals the undercoverage is due to underestimated variance, not bias:
+    \begin{itemize}
+        \item Mean bias is negligible: $+0.0015 \pm 0.0007$ ($\sim$0.15\% of range)
+        \item Ensembles capture only $\sim$69\% of true prediction variability
+    \end{itemize}
+    \item The undercoverage gap is roughly constant ($\sim$20\%) across confidence levels
+    \item Very small variation ($\pm$0.5\%) across 20 independent ensembles proves this is a methodological problem, not random variation
+    \item Results are saved for reproducibility in \texttt{results/20251126\_210148/}
+\end{itemize}
+
+This work highlights the importance of validating uncertainty estimates against ground truth. While ensemble methods provide a practical approach to uncertainty quantification, they require careful evaluation and potentially post-hoc calibration to achieve nominal coverage. The negligible bias suggests that ensemble mean predictions are reliable, but the confidence intervals are systematically too narrow. In practice, deploying a single bootstrap ensemble will produce unbiased predictions but systematically underestimate uncertainty.
+
+Future work should explore alternative ensemble strategies (deep ensembles, MC dropout) and calibration methods (temperature scaling, conformal prediction) to improve coverage while maintaining computational efficiency.
+
+\section*{Code Availability and Reproducibility}
+
+All code for this project is available at \texttt{/global/homes/i/ipang001/NN\_UQ/}. Experiment results are saved with timestamps for reproducibility:
+
+\begin{itemize}
+    \item \textbf{Results directory}: \texttt{results/20251126\_210148/} (includes bias metrics)
+    \item \textbf{Files saved}:
+    \begin{itemize}
+        \item \texttt{results.json}: Full experiment configuration and metrics
+        \item \texttt{coverage\_data.npz}: Raw coverage arrays for plotting
+        \item \texttt{coverage\_analysis.png}: Coverage vs confidence level plot
+        \item \texttt{uncertainty\_vs\_error.png}: Uncertainty vs error scatter plot
+    \end{itemize}
+    \item \textbf{To reproduce}: Run \texttt{python main.py} with seed 42
+    \item \textbf{Latest results}: Symlinked at \texttt{results/latest/}
+\end{itemize}
+
+\bibliographystyle{plain}
+\begin{thebibliography}{9}
+
+\bibitem{breiman1996bagging}
+Breiman, L. (1996).
+\textit{Bagging predictors}.
+Machine Learning, 24(2), 123--140.
+
+\bibitem{lakshminarayanan2017simple}
+Lakshminarayanan, B., Pritzel, A., \& Blundell, C. (2017).
+\textit{Simple and scalable predictive uncertainty estimation using deep ensembles}.
+Advances in Neural Information Processing Systems, 30.
+
+\bibitem{guo2017calibration}
+Guo, C., Pleiss, G., Sun, Y., \& Weinberger, K. Q. (2017).
+\textit{On calibration of modern neural networks}.
+International Conference on Machine Learning, 1321--1330.
+
+\bibitem{neyman1933}
+Neyman, J., \& Pearson, E. S. (1933).
+\textit{On the problem of the most efficient tests of statistical hypotheses}.
+Philosophical Transactions of the Royal Society of London. Series A, 231, 289--337.
+
+\end{thebibliography}
+
+\end{document}
