@@ -101,8 +101,7 @@ pip install -r requirements.txt
 
 ### Interactive Run on GPU (Recommended)
 ```bash
-cd /global/homes/i/ipang001/NN_UQ
-srun -A m4539 -C gpu -q interactive -t 30:00 -N 1 --gpus-per-node=4 \
+srun -A <your_account> -C gpu -q interactive -t 30:00 -N 1 --gpus-per-node=4 \
   bash -c "module load pytorch/2.8.0 && source venv/bin/activate && python main.py"
 ```
 
